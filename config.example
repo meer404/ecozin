@@ -1,0 +1,8 @@
+# Set these in Apache's environment, then restart Apache. Do not expose API keys in JavaScript.
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_NAME=ecozin
+DB_USER=root
+DB_PASSWORD=
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-2.5-flash

@@ -1,0 +1,5 @@
+uploads/*
+!uploads/.htaccess
+config.local.php
+*.log
+tests/artifacts/

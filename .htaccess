@@ -1,0 +1,4 @@
+Options -Indexes
+<FilesMatch "^(schema\.sql|README\.md|config\.example|setup\.php|bootstrap\.php|db_connection\.php|knowledge\.php)$">
+Require all denied
+</FilesMatch>
