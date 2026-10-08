@@ -29,6 +29,72 @@ try {
     require_user('farmer'); require_once __DIR__.'/extract.php';
     $text=trim($_POST['text'] ?? ''); if ($text==='' || mb_strlen($text)>2000) throw new RuntimeException('Describe your material in a sentence or two.');
     $out=['parsed'=>extract_listing($text)];
+ } elseif ($action==='save_profile') {
+    if ($_SERVER['REQUEST_METHOD']!=='POST') throw new RuntimeException('POST required.');
+    $u=require_user();
+    $name=trim($_POST['full_name'] ?? ''); if ($name==='' || mb_strlen($name)>120) throw new RuntimeException('Enter a name of up to 120 characters.');
+    $industry=mb_substr(trim($_POST['industry'] ?? ''),0,200);
+    $product=$_POST['product'] ?? 'Pomegranate'; if (!in_array($product,['Pomegranate','Walnut','Olive Pomace'],true)) throw new RuntimeException('Invalid preferred material.');
+    $lat=filter_var($_POST['lat'] ?? '',FILTER_VALIDATE_FLOAT); $lng=filter_var($_POST['lng'] ?? '',FILTER_VALIDATE_FLOAT);
+    if ($lat===false || abs($lat)>90 || $lng===false || abs($lng)>180) throw new RuntimeException('Check your coordinates.');
+    // Merge rather than replace: profile_data may carry keys this form does not know about.
+    $profile=array_merge(json_decode($u['profile_data'] ?? '{}',true) ?: [],['industry'=>$industry,'product'=>$product,'lat'=>$lat,'lng'=>$lng]);
+    query('UPDATE users SET full_name=?,profile_data=? WHERE id=?','ssi',[$name,json_encode($profile),$u['id']]);
+    // Refresh the cached session row, otherwise the sidebar and match scoring keep the old values.
+    $fresh=query('SELECT * FROM users WHERE id=?','i',[$u['id']])->get_result()->fetch_assoc();
+    if ($fresh) { unset($fresh['password']); $_SESSION['user']=$fresh; }
+    $out=['message'=>'Profile saved.'];
+ } elseif ($action==='change_password') {
+    if ($_SERVER['REQUEST_METHOD']!=='POST') throw new RuntimeException('POST required.');
+    $u=require_user();
+    $current=$_POST['current_password'] ?? ''; $new=$_POST['new_password'] ?? '';
+    if (strlen($new)<10) throw new RuntimeException('Use a new password of at least 10 characters.');
+    if ($new===$current) throw new RuntimeException('The new password must be different.');
+    $row=query('SELECT password FROM users WHERE id=?','i',[$u['id']])->get_result()->fetch_assoc();
+    if (!$row || !password_verify($current,$row['password'])) {http_response_code(403); throw new RuntimeException('Your current password is incorrect.');}
+    query('UPDATE users SET password=? WHERE id=?','si',[password_hash($new,PASSWORD_DEFAULT),$u['id']]);
+    session_regenerate_id(true);
+    $out=['message'=>'Password changed.'];
+ } elseif ($action==='delete_listing') {
+    if ($_SERVER['REQUEST_METHOD']!=='POST') throw new RuntimeException('POST required.');
+    $u=require_user('farmer'); $id=(int)($_POST['id'] ?? 0);
+    $l=query('SELECT photo_url FROM waste_listings WHERE id=? AND farmer_id=?','ii',[$id,$u['id']])->get_result()->fetch_assoc();
+    if (!$l) {http_response_code(403); throw new RuntimeException('You can only remove your own listings.');}
+    query('DELETE FROM waste_listings WHERE id=? AND farmer_id=?','ii',[$id,$u['id']]); drop_upload($l['photo_url']);
+    $out=['message'=>'Listing removed.'];
+ } elseif ($action==='set_status') {
+    if ($_SERVER['REQUEST_METHOD']!=='POST') throw new RuntimeException('POST required.');
+    $u=require_user('farmer'); $id=(int)($_POST['id'] ?? 0); $status=$_POST['status'] ?? '';
+    if (!in_array($status,['available','reserved','sold'],true)) throw new RuntimeException('Invalid status.');
+    if (!query('SELECT id FROM waste_listings WHERE id=? AND farmer_id=?','ii',[$id,$u['id']])->get_result()->fetch_assoc()) {http_response_code(403); throw new RuntimeException('You can only update your own listings.');}
+    query('UPDATE waste_listings SET status=? WHERE id=? AND farmer_id=?','sii',[$status,$id,$u['id']]);
+    $out=['message'=>'Status updated.','status'=>$status];
+ } elseif ($action==='unfollow') {
+    if ($_SERVER['REQUEST_METHOD']!=='POST') throw new RuntimeException('POST required.');
+    $u=require_user('business'); $farmer=(int)($_POST['farmer_id'] ?? 0);
+    query('DELETE FROM subscriptions WHERE business_id=? AND farmer_id=?','ii',[$u['id'],$farmer]);
+    query('DELETE FROM matches_and_ads WHERE business_id=? AND farmer_id=?','ii',[$u['id'],$farmer]);
+    $out=['message'=>'Removed from your shortlist. The conversation history is kept.'];
+ } elseif ($action==='admin_listing') {
+    if ($_SERVER['REQUEST_METHOD']!=='POST') throw new RuntimeException('POST required.');
+    require_user('admin'); $id=(int)($_POST['id'] ?? 0); $op=$_POST['op'] ?? '';
+    if ($op==='delete') {
+      $l=query('SELECT photo_url FROM waste_listings WHERE id=?','i',[$id])->get_result()->fetch_assoc();
+      if (!$l) throw new RuntimeException('Listing not found.');
+      query('DELETE FROM waste_listings WHERE id=?','i',[$id]); drop_upload($l['photo_url']);
+      $out=['message'=>'Listing removed.'];
+    } else {
+      if (!in_array($op,['available','reserved','sold'],true)) throw new RuntimeException('Invalid moderation action.');
+      query('UPDATE waste_listings SET status=? WHERE id=?','si',[$op,$id]); $out=['message'=>'Listing status set to '.$op.'.'];
+    }
+ } elseif ($action==='admin_role') {
+    if ($_SERVER['REQUEST_METHOD']!=='POST') throw new RuntimeException('POST required.');
+    $me=require_user('admin'); $id=(int)($_POST['id'] ?? 0); $role=$_POST['role'] ?? '';
+    if (!in_array($role,['farmer','business','admin'],true)) throw new RuntimeException('Invalid role.');
+    if ($id===(int)$me['id']) throw new RuntimeException('You cannot change your own role.');
+    if (!query('SELECT id FROM users WHERE id=?','i',[$id])->get_result()->fetch_assoc()) throw new RuntimeException('User not found.');
+    query('UPDATE users SET role=? WHERE id=?','si',[$role,$id]);
+    $out=['message'=>'Role updated. The user sees it after their next sign-in.'];
  } elseif ($action==='follow') {
     if ($_SERVER['REQUEST_METHOD']!=='POST') throw new RuntimeException('POST required.');
     $u=require_user('business'); $l=query('SELECT * FROM waste_listings WHERE id=? AND status=?','is',[(int)($_POST['listing_id'] ?? 0),'available'])->get_result()->fetch_assoc(); if (!$l) throw new RuntimeException('Listing unavailable.');

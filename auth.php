@@ -14,5 +14,6 @@ try {
  $email=trim($_POST['email'] ?? ''); $u=query('SELECT * FROM users WHERE email=?','s',[$email])->get_result()->fetch_assoc();
  if (!$u || !password_verify($_POST['password'] ?? '',$u['password'])) throw new RuntimeException('Email or password is incorrect.');
  session_regenerate_id(true); unset($u['password']); $_SESSION['user']=$u; $_SESSION['csrf']=bin2hex(random_bytes(32));
- header('Location: '.($u['role']==='farmer'?'farmer_dashboard.php':'business_dashboard.php')); exit;
+ $home=['farmer'=>'farmer_dashboard.php','business'=>'business_dashboard.php','admin'=>'admin_panel.php'];
+ header('Location: '.($home[$u['role']] ?? 'index.php')); exit;
 } catch(Throwable $e) { $_SESSION['flash']=$e instanceof mysqli_sql_exception?'Could not complete sign-in. Check database setup or use a different email.':$e->getMessage(); header('Location: index.php?view=login'); exit; }

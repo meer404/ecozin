@@ -18,6 +18,12 @@ function require_user(?string $role = null): array {
     $u=user(); if (!$u || ($role && $u['role']!==$role)) { http_response_code(403); throw new RuntimeException('Please sign in with the correct account role.'); } return $u;
 }
 function csrf(): void { if (!hash_equals($_SESSION['csrf'],$_POST['csrf'] ?? '')) { http_response_code(403); throw new RuntimeException('Session expired. Refresh and try again.'); } }
+// Removes an upload only when it really resolves inside uploads/. Missing or stray paths are ignored.
+function drop_upload(?string $relative): void {
+    if (!$relative) return;
+    $path=realpath(__DIR__.'/'.$relative); $root=realpath(__DIR__.'/uploads');
+    if ($path && $root && str_starts_with($path,$root.DIRECTORY_SEPARATOR) && is_file($path)) @unlink($path);
+}
 function listings(): array { return query('SELECT w.*,u.full_name FROM waste_listings w JOIN users u ON u.id=w.farmer_id ORDER BY w.created_at DESC')->get_result()->fetch_all(MYSQLI_ASSOC); }
 function distance(float $a,float $b,float $c,float $d): float { return 6371*2*asin(min(1,sqrt(pow(sin(deg2rad($c-$a)/2),2)+cos(deg2rad($a))*cos(deg2rad($c))*pow(sin(deg2rad($d-$b)/2),2)))); }
 function match_listing(array $u,array $l): array {

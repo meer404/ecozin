@@ -38,7 +38,8 @@ and `channel:'msedge'`. On any other machine, fix the `require()` at line 1 and 
 blaming a failure on the app. Tests assume MySQL is running, `setup.php` has been run, and the seed data
 is intact (`smoke.cjs` asserts exactly 4 listings).
 
-Demo credentials: `buyer@ecozin.test` / `farmer@ecozin.test`, password `EcozinDemo2026!`.
+Demo credentials: `buyer@ecozin.test` / `farmer@ecozin.test` / `admin@ecozin.test`, password
+`EcozinDemo2026!`.
 
 ## Configuration
 
@@ -74,22 +75,74 @@ anywhere, and new code must keep it that way. Typical read: `query(...)->get_res
 
 Schema in `schema.sql`: `users` (role enum farmer/business/admin, `profile_data` JSON holding
 industry/product/lat/lng), `waste_listings`, `messages`, `subscriptions`, `matches_and_ads`.
-The `admin` role exists in the enum but has **no UI** — don't assume a moderation surface exists.
+The `admin` role is served by `admin_panel.php` (accounts, moderation, totals).
 
 ### Page rendering
 
 `layout.php` requires `bootstrap.php` and provides `page_start($activeNavFile, $title)`,
 `page_end()`, and `listing_card($listing, ?$match)`. Each page is a thin script:
 `require layout.php` → role gate (`header('Location: …'); exit;`) → `page_start()` → markup → `page_end()`.
-The sidebar nav is an inline array in `page_start()`, keyed by filename — **adding a page means adding an
-entry there**. Bootstrap 5 loads from CDN with an `onerror` fallback to `assets/bootstrap.min.css`;
+The sidebar nav is an inline array in `page_start()`, keyed by filename — **adding a page means adding
+an entry there, with the list of roles allowed to see it**. Bootstrap 5 loads from CDN with an `onerror` fallback to `assets/bootstrap.min.css`;
 jQuery, Leaflet and Lucide are bundled locally so the app still works with the network cut (a tested
 requirement — `smoke.cjs` aborts all `https://` requests and re-asserts the page).
 
-Pages: `index.php` (marketplace + login/register), `farmer_dashboard.php` (inventory CRUD),
-`business_dashboard.php` (ranked matches + procurement brief), `voice_listing.php` (speak/type a
-listing in plain language), `pooling.php` (combine small lots into one pickup), `map.php`,
-`chat.php`, `ai_knowledge_base.php`.
+Pages: `index.php` (marketplace + login/register), `voice_listing.php` (speak/type a listing in
+plain language), `pooling.php` (combine small lots into one pickup), `profile.php`, `map.php`,
+`chat.php`, `ai_knowledge_base.php`, plus the three role consoles below.
+
+### `profile.php` — one file, two modes
+
+No `?id=` (or your own id) renders **your editable profile**; any other id renders that person's
+**public profile**. The editable form is inside `if($own)`, so it can never leak into a public view.
+
+- Field labels adapt to role: a farmer sees "Farm type" / "Main material", a buyer sees "Industry" /
+  "Preferred material" with a hint naming the 65-vs-15 point effect.
+- A district dropdown built from `gazetteer.php` fills lat/lng client-side, so a user never has to
+  understand coordinates. Geolocation is offered as a second option.
+- **Email is select-ed only for the admin-only line and is never rendered to anyone else.** Password
+  is never selected. Confirmed by test: admin sees it, buyer and anonymous do not.
+- A missing id returns a real `404` with a message, not a blank page.
+
+**Profile edits feed matching directly.** `profile_data.product` and `lat`/`lng` are exactly what
+`match_listing()` reads, so `save_profile` re-ranks every buyer shortlist. Before this page existed
+there was no way to change them after registration and every buyer stayed pinned to the Slemani
+default forever. Two consequences for anyone touching this code:
+
+- `save_profile` **merges** into existing `profile_data` via `array_merge` rather than replacing it,
+  so keys this form does not know about survive.
+- It then **re-reads the user row into `$_SESSION['user']`** (minus the password). Skipping that
+  leaves the sidebar showing a stale name and — worse — leaves match scoring using the old profile
+  for the rest of the session, because `$_SESSION['user']` is the cached row every page reads.
+
+`change_password` verifies the current password with `password_verify` before writing, rejects a
+new password under 10 characters or identical to the current one, and calls
+`session_regenerate_id(true)` after a successful change.
+
+Profile links are wired from the topbar avatar and sidebar name (own profile), and from farmer names
+on listing cards plus every name in the three consoles' tables (public profile).
+
+### The three role consoles
+
+Each role has one full management console, and `auth.php` sends the user to theirs on sign-in via a
+`role => landing page` map — **not** a two-branch ternary. An unmapped role falls back to
+`index.php` rather than a page that would bounce it straight back to the login screen.
+
+| Role | Console | Contains |
+|---|---|---|
+| `farmer` | `farmer_dashboard.php` | KPI tiles, inventory table with status/search filters, inline status change, edit, delete, and the buyers who followed them with recorded suitability scores |
+| `business` | `business_dashboard.php` | KPI tiles (matched lots, reachable tons, follows, average suitability), followed-farmer table with unfollow, ranked shortlist, procurement brief |
+| `admin` | `admin_panel.php` | Platform totals, breakdown bars by role/status/material, account table with role changes, listing moderation with status + delete |
+
+The sidebar nav in `page_start()` is **role-aware**: each entry carries a list of roles allowed to
+see it (`['*']` means everyone, including signed-out visitors). A farmer never sees buyer tools and
+vice versa. This replaced a `.sidebar nav a:nth-child(3){display:none}` mobile CSS hack that hid
+whichever item happened to sit third — after the nav became role-dependent that hack started hiding
+"Quick list", the farmer's main mobile entry point, so it was removed.
+
+**Admin deliberately cannot delete accounts.** Users are referenced by listings, messages and
+subscriptions, so removal is a data-retention decision rather than a button. Admins also cannot
+change their own role — that would let the last admin lock everyone out of the console.
 
 ### Localisation
 
@@ -98,8 +151,9 @@ listing in plain language), `pooling.php` (combine small lots into one pickup), 
 session, and `page_start()` stamps `dir="rtl"` on `<html>`. Lookup falls back locale → English →
 the key itself, so a missing key never breaks a page.
 
-**Phase 1 translated only the navigation plus `voice_listing.php` and `pooling.php`.** The older
-pages are still English-only; they get converted later. RTL layout overrides live at the bottom of
+**Translated so far: the navigation, `voice_listing.php`, `pooling.php` and the three role
+consoles plus `profile.php`.** `index.php`, `chat.php`, `map.php` and `ai_knowledge_base.php` are still English-only
+and get converted in a later phase. RTL layout overrides live at the bottom of
 `assets/app.css` and must track the sidebar breakpoints (1150px → 200px sidebar, 760px → stacked).
 Sorani and Arabic strings still need review by a qualified speaker.
 
@@ -141,10 +195,18 @@ Conventions to follow when adding an action:
   serializes it and defaults to HTTP 400. `mysqli_sql_exception` is masked to a generic "Database unavailable"
   message so SQL details never reach the browser.
 
-Actions: `listings`, `save_listing` (farmer, upsert + photo), `parse_listing` (farmer — free text →
-structured fields via `extract.php`, never writes to the DB), `follow` (business — transactional:
-subscription + auto-greeting message + match record), `messages` / `send_message`,
-`recommendations` (business, Gemini brief), `knowledge` (multilingual material brief).
+Actions: `listings`, `save_profile` / `change_password` (any signed-in user, own account only),
+`save_listing` (farmer, upsert + photo), `parse_listing` (farmer — free text →
+structured fields via `extract.php`, never writes to the DB), `set_status` / `delete_listing`
+(farmer, ownership-checked), `follow` (business — transactional: subscription + auto-greeting
+message + match record), `unfollow` (business), `messages` / `send_message`, `recommendations`
+(business, Gemini brief), `knowledge` (multilingual material brief), `admin_listing` (admin — status
+or delete) and `admin_role` (admin, refuses self).
+
+Ownership-checked actions **select the row by `id AND farmer_id` before mutating**, rather than
+relying on affected-rows afterwards — a no-op UPDATE and a forbidden UPDATE are indistinguishable by
+row count. `drop_upload()` in `bootstrap.php` deletes a listing photo only after confirming
+`realpath()` lands inside `uploads/`.
 
 ### AI fallback contract
 
@@ -191,6 +253,9 @@ bundles — new page behavior goes in the same file behind the same kind of guar
   so callers just `try/catch` → `notice(msg, true)`.
 - **All user-generated content is written with `textContent` / `document.createElement`, never `innerHTML`.**
   `deep.cjs` asserts an injected `<script>` in a listing description never becomes an element.
+- Destructive console buttons use `armDelete()` — the first click arms the button for 4 seconds and
+  the second confirms. **Never `window.confirm()`**: a modal dialog blocks all further browser
+  events and would freeze any automated session driving the page.
 - Chat polls every 3s via jQuery `$.ajax` with `after=lastId` for incremental fetch, skipping when
   `document.hidden` or a request is in flight. Voice (MediaRecorder, 60s cap), dictation
   (SpeechRecognition) and TTS (speechSynthesis) are all feature-detected with typed/upload fallbacks.
