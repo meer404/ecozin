@@ -8,7 +8,11 @@ header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: strict-origin-when-cross-origin');
 header('X-Frame-Options: SAMEORIGIN');
 $_SESSION['csrf'] ??= bin2hex(random_bytes(32));
+if (isset($_GET['lang']) && in_array($_GET['lang'],['en','ckb','ar'],true)) $_SESSION['lang']=$_GET['lang'];
 function esc($v): string { return htmlspecialchars((string)$v, ENT_QUOTES,'UTF-8'); }
+function lang(): string { return $_SESSION['lang'] ?? 'en'; }
+function rtl(): bool { return lang()!=='en'; }
+function t(string $key): string { static $s; $s ??= require __DIR__.'/lang.php'; return $s[lang()][$key] ?? $s['en'][$key] ?? $key; }
 function user(): ?array { return $_SESSION['user'] ?? null; }
 function require_user(?string $role = null): array {
     $u=user(); if (!$u || ($role && $u['role']!==$role)) { http_response_code(403); throw new RuntimeException('Please sign in with the correct account role.'); } return $u;

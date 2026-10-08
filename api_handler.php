@@ -24,6 +24,11 @@ try {
     if ($id) query('UPDATE waste_listings SET product_type=?,quantity_tons=?,price_per_ton=?,location_lat=?,location_lng=?,description=?,status=?,photo_url=COALESCE(?,photo_url) WHERE id=? AND farmer_id=?','sddddsssii',[$type,$qty,$price,$lat,$lng,$desc,$status,$photo,$id,$u['id']]);
     else query('INSERT INTO waste_listings(farmer_id,product_type,quantity_tons,price_per_ton,location_lat,location_lng,description,photo_url) VALUES(?,?,?,?,?,?,?,?)','isddddss',[$u['id'],$type,$qty,$price,$lat,$lng,$desc,$photo]);
     $out=['message'=>'Inventory saved.'];
+ } elseif ($action==='parse_listing') {
+    if ($_SERVER['REQUEST_METHOD']!=='POST') throw new RuntimeException('POST required.');
+    require_user('farmer'); require_once __DIR__.'/extract.php';
+    $text=trim($_POST['text'] ?? ''); if ($text==='' || mb_strlen($text)>2000) throw new RuntimeException('Describe your material in a sentence or two.');
+    $out=['parsed'=>extract_listing($text)];
  } elseif ($action==='follow') {
     if ($_SERVER['REQUEST_METHOD']!=='POST') throw new RuntimeException('POST required.');
     $u=require_user('business'); $l=query('SELECT * FROM waste_listings WHERE id=? AND status=?','is',[(int)($_POST['listing_id'] ?? 0),'available'])->get_result()->fetch_assoc(); if (!$l) throw new RuntimeException('Listing unavailable.');

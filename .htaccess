@@ -1,4 +1,4 @@
 Options -Indexes
-<FilesMatch "^(schema\.sql|README\.md|config\.example|setup\.php|bootstrap\.php|db_connection\.php|knowledge\.php)$">
+<FilesMatch "^(schema\.sql|README\.md|CLAUDE\.md|config\.example|setup\.php|bootstrap\.php|db_connection\.php|knowledge\.php|lang\.php|gazetteer\.php|extract\.php)$">
 Require all denied
 </FilesMatch>
